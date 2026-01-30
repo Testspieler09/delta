@@ -1,0 +1,12 @@
+[package]
+name = "delta"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.56", features = ["derive"] }
+humantime-serde = "1.1.1"
+serde = { version = "1.0.228", features = ["derive"] }
+sysinfo = "0.38.0"
+toml = "0.9.11"
