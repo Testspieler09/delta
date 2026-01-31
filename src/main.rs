@@ -1,14 +1,12 @@
 mod bench_config;
+mod executor;
 mod monitor_memory;
 mod parser;
 
-use crate::{bench_config::BenchConfig, monitor_memory::monitor_memory, parser::Args};
+use crate::{bench_config::BenchConfig, executor::execute_benchmark, parser::Args};
 
 use clap::Parser;
-use std::{
-    process::{Command, ExitCode},
-    time::Instant,
-};
+use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args = Args::parse();
@@ -29,28 +27,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // TODO: add multithreading here
-    for cmd_config in config.commands {
-        let Ok(mut child) = Command::new(&cmd_config.cmd)
-            .spawn()
-            .map_err(|_| eprintln!("Could not spawn process with cmd: {:?}", &cmd_config.cmd))
-        else {
-            return ExitCode::FAILURE;
-        };
-        let start = Instant::now();
-        let Ok((duration, max_mem)) =
-            monitor_memory(&mut child).map_err(|_| eprintln!("Failed to read a process memory"))
-        else {
-            return ExitCode::FAILURE;
-        };
-
-        let status = child
-            .wait()
-            .expect(&format!("Command {:?} was not running", &cmd_config.cmd));
-        let duration = start.elapsed();
-
-        // TODO: save the collected data into a csv file or similar
-    }
+    let _ = execute_benchmark(config);
 
     ExitCode::SUCCESS
 }

@@ -1,17 +1,13 @@
 use anyhow::Result;
-use std::{
-    process::Child,
-    time::{Duration, Instant},
-};
+use std::{process::Child, time::Duration};
 use sysinfo::{Pid, System};
 
-pub(super) fn monitor_memory(child: &mut Child) -> Result<(Duration, u64)> {
+pub(super) fn monitor_memory(child: &mut Child, sampling_interval: Duration) -> Result<u64> {
     let s = System::new_all();
     let process = s
         .process(Pid::from(child.id() as usize))
         .expect("Process not running nomore");
 
-    let start = Instant::now();
     let mut max_mem = 0;
 
     loop {
@@ -24,10 +20,8 @@ pub(super) fn monitor_memory(child: &mut Child) -> Result<(Duration, u64)> {
             max_mem = current_mem;
         }
 
-        // TODO: add this as param to the config
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(sampling_interval);
     }
-    let duration = start.elapsed();
 
-    Ok((duration, max_mem))
+    Ok(max_mem)
 }

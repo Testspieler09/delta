@@ -2,36 +2,58 @@ use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use std::{fs, path::PathBuf, time::Duration};
 
+fn default_threads() -> usize {
+    std::thread::available_parallelism()
+        .expect("Could not get number of availabe cores")
+        .get()
+}
 fn default_iterations() -> usize {
     200
 }
 fn default_max_time() -> Duration {
     Duration::from_secs(10)
 }
+fn default_max_sampling_interval() -> Duration {
+    Duration::from_micros(100)
+}
 
 #[derive(Deserialize, Debug)]
 pub struct BenchConfig {
+    #[serde(default = "default_threads")]
+    pub threads: usize,
+
     #[serde(default = "default_iterations")]
     pub iterations: usize,
 
     #[serde(default = "default_max_time")]
     #[serde(with = "humantime_serde")]
-    pub max_time: Duration,
+    pub max_execution_time: Duration,
+
+    #[serde(default = "default_max_sampling_interval")]
+    #[serde(with = "humantime_serde")]
+    pub memory_sampling_interval: Duration,
 
     #[serde(rename = "command")]
     pub commands: Vec<CommandConfig>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct CommandConfig {
     pub cmd: String,
+
+    #[serde(default)]
+    pub args: Vec<String>,
 
     #[serde(default)]
     pub iterations: Option<usize>,
 
     #[serde(default)]
     #[serde(with = "humantime_serde")]
-    pub max_time: Option<Duration>,
+    pub max_execution_time: Option<Duration>,
+
+    #[serde(default)]
+    #[serde(with = "humantime_serde")]
+    pub memory_sampling_interval: Option<Duration>,
 }
 
 impl TryFrom<&PathBuf> for BenchConfig {

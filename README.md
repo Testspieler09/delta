@@ -10,13 +10,15 @@ Made for benchmarking similar programs based on time it takes to execute and the
 
 ```toml
 iterations = 10                # The gloabl amount of iterations (defaults to 200)
-max_time = "60s"               # The global time before the process is supposed to get killed (defaults to 10)
+max_execution_time = "60s"     # The global time before the process is supposed to get killed (defaults to 10)
 
 [[command]]
-cmd = "./rust-fibonacci 20000" # The cmd to execute
+cmd = "./rust-fibonacci"       # The cmd to execute
+args = ["20000"]
 
 [[command]]
-cmd = "./go-fibonacci 20000"
+cmd = "./go-fibonacci"
+args = ["20000"]
 iterations = 3                 # Override the gloabl iteration limit for this cmd
-max_time = "300s"              # Override the global max_time for this cmd
+max_execution_time = "300s"    # Override the global max_time for this cmd
 ```
