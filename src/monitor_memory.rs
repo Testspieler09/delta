@@ -1,32 +1,40 @@
+use crate::results::{PeakMemoryResult, TimelineMemoryResult};
+
 use anyhow::Result;
-use std::time::Duration;
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use std::{
+    process::Child,
+    time::{Duration, Instant},
+};
+use sysinfo::{Pid, System};
 
-pub(super) fn monitor_memory(pid_raw: u32, sampling_interval: Duration) -> Result<u64> {
-    let mut s = System::new_all();
-    let pid = Pid::from(pid_raw as usize);
+pub(super) fn monitor_memory(
+    child: &mut Child,
+    sampling_interval: Duration,
+) -> Result<TimelineMemoryResult> {
+    let s = System::new_all();
+    let process = s
+        .process(Pid::from(child.id() as usize))
+        .expect("Process not running nomore");
 
-    let mut max_mem = 0;
+    let start = Instant::now();
+    let mut mem_timeline: Vec<(Duration, PeakMemoryResult)> = Vec::with_capacity(2000);
 
     loop {
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[pid]),
-            true,
-            ProcessRefreshKind::everything(),
-        );
-
-        if let Some(process) = s.process(pid) {
-            let current_mem = sysinfo::Process::memory(process);
-            let _current_v_mem = sysinfo::Process::virtual_memory(process);
-            if current_mem > max_mem {
-                max_mem = current_mem;
-            }
-        } else {
+        if let Some(_status) = child.try_wait().expect("Check failed") {
             break;
         }
+
+        let mem_result = PeakMemoryResult {
+            physical: sysinfo::Process::memory(process),
+            virtual_: sysinfo::Process::virtual_memory(process),
+        };
+
+        mem_timeline.push((start.elapsed(), mem_result));
 
         std::thread::sleep(sampling_interval);
     }
 
-    Ok(max_mem)
+    Ok(TimelineMemoryResult {
+        timeline: mem_timeline,
+    })
 }

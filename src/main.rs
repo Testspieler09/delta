@@ -1,7 +1,9 @@
 mod bench_config;
 mod executor;
+mod helper;
 mod monitor_memory;
 mod parser;
+mod results;
 
 use crate::{bench_config::BenchConfig, executor::execute_benchmark, parser::Args};
 
@@ -13,7 +15,7 @@ fn main() -> ExitCode {
     let args = Args::parse();
 
     let bench_config = BenchConfig::try_from(&args.config_file).map_err(|_| {
-        eprintln!(
+        error_print!(
             "Could not parse your config file: {}",
             args.config_file.display()
         );
@@ -24,7 +26,7 @@ fn main() -> ExitCode {
     };
 
     if config.commands.is_empty() {
-        eprintln!("No commands provided.");
+        error_print!("No commands provided.");
         return ExitCode::FAILURE;
     }
 
@@ -33,7 +35,18 @@ fn main() -> ExitCode {
         .build()
         .unwrap();
 
-    let _ = execute_benchmark(config, thread_pool);
+    let bench_results = execute_benchmark(
+        config,
+        thread_pool,
+        args.measure_mem_once,
+        args.memory_measuring_mode,
+    )
+    .expect("Failed to create benchmark results");
+
+    if let Err(e) = bench_results.export_to_csv_files(args.output_folder) {
+        error_print!("Could not export the benchmark results: {}", e);
+        return ExitCode::FAILURE;
+    }
 
     ExitCode::SUCCESS
 }
