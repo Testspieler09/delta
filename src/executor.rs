@@ -1,81 +1,91 @@
 use crate::{bench_config::BenchConfig, monitor_memory::monitor_memory};
+
+use rayon::ThreadPool;
 use std::{
     process::{Command, ExitCode, Stdio},
-    sync::{Arc, Mutex},
-    thread,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant,
 };
+use wait_timeout::ChildExt;
 
-pub(super) fn execute_benchmark(bench_config: BenchConfig) -> Result<(), ExitCode> {
-    let results = Arc::new(Mutex::new(Vec::new()));
-    let mut handles = Vec::with_capacity(bench_config.threads);
+pub(super) fn execute_benchmark(
+    bench_config: BenchConfig,
+    thread_pool: ThreadPool,
+) -> Result<(), ExitCode> {
+    thread_pool.install(|| {
+        use rayon::prelude::*;
 
-    for cmd_config in bench_config.commands {
-        for _ in 0..bench_config.threads {
-            let cmd_config = cmd_config.clone();
-            let results = Arc::clone(&results);
-
-            let handle = thread::spawn(move || {
-                let mut child = match Command::new(&cmd_config.cmd)
+        let results: Vec<_> = bench_config
+            .commands
+            .par_iter()
+            .flat_map(|cmd_config| {
+                let iterations = cmd_config.iterations.unwrap_or(bench_config.iterations);
+                (0..iterations).into_par_iter().map(move |_| cmd_config)
+            })
+            .map(|cmd_config| {
+                let mut child = Command::new(&cmd_config.cmd)
                     .args(&cmd_config.args)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .spawn()
-                {
-                    Ok(child) => child,
-                    Err(e) => {
+                    .map_err(|e| {
                         eprintln!(
                             "Could not spawn process with cmd: {:?} {:?}\nError: {}",
                             &cmd_config.cmd, &cmd_config.args, e
                         );
-                        return Err(ExitCode::FAILURE);
-                    }
-                };
+                        ExitCode::FAILURE
+                    })?;
 
                 let start = Instant::now();
-
-                let sampling_interval = cmd_config
+                let timeout = cmd_config
+                    .max_execution_time
+                    .unwrap_or(bench_config.max_execution_time);
+                let interval = cmd_config
                     .memory_sampling_interval
                     .unwrap_or(bench_config.memory_sampling_interval);
 
-                match monitor_memory(&mut child, sampling_interval) {
-                    Ok(max_mem) => {
-                        let _status = child
-                            .wait()
-                            .expect(&format!("Command {:?} was not running", &cmd_config.cmd));
-                        let duration = start.elapsed();
+                let result = std::thread::scope(|s| {
+                    let max_mem = Arc::new(AtomicU64::new(0));
+                    let max_mem_clone = max_mem.clone();
 
-                        let mut results_lock = results.lock().unwrap();
-                        results_lock.push((
-                            cmd_config.cmd.clone(),
-                            cmd_config.args,
-                            duration,
-                            max_mem,
-                        ));
-                    }
-                    Err(_) => {
-                        eprintln!("Failed to read process memory.");
-                        return Err(ExitCode::FAILURE);
-                    }
-                }
+                    let pid = child.id();
+                    s.spawn(move || {
+                        if let Ok(mem) = monitor_memory(pid, interval) {
+                            max_mem_clone.store(mem as u64, Ordering::Relaxed);
+                        }
+                    });
 
-                Ok(())
-            });
-            handles.push(handle);
+                    match child.wait_timeout(timeout).unwrap() {
+                        Some(_status) => (Some(start.elapsed()), max_mem.load(Ordering::Relaxed)),
+                        None => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            eprintln!("Killed process {:?} due to timeout", cmd_config.cmd);
+                            (None, max_mem.load(Ordering::Relaxed))
+                        }
+                    }
+                });
+
+                let (duration, max_mem) = result;
+                Ok((
+                    cmd_config.cmd.clone(),
+                    cmd_config.args.clone(),
+                    duration,
+                    max_mem,
+                ))
+            })
+            .collect::<Result<Vec<_>, ExitCode>>()?;
+
+        for (cmd, args, duration, max_mem) in results {
+            println!(
+                "{:?} {:?} ran in {:?} and used {} bytes of memory",
+                cmd, args, duration, max_mem
+            );
         }
-    }
 
-    for handle in handles {
-        let _ = handle.join().expect("Thread crashed.");
-    }
-
-    let results_lock = results.lock().unwrap();
-    for (cmd, args, duration, max_mem) in results_lock.iter() {
-        println!(
-            "{:?} {:?} ran in {:?} and used {} bytes of memory",
-            cmd, args, duration, max_mem
-        );
-    }
-
-    Ok(())
+        Ok(())
+    })
 }

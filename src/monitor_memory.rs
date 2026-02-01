@@ -1,23 +1,28 @@
 use anyhow::Result;
-use std::{process::Child, time::Duration};
-use sysinfo::{Pid, System};
+use std::time::Duration;
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-pub(super) fn monitor_memory(child: &mut Child, sampling_interval: Duration) -> Result<u64> {
-    let s = System::new_all();
-    let process = s
-        .process(Pid::from(child.id() as usize))
-        .expect("Process not running nomore");
+pub(super) fn monitor_memory(pid_raw: u32, sampling_interval: Duration) -> Result<u64> {
+    let mut s = System::new_all();
+    let pid = Pid::from(pid_raw as usize);
 
     let mut max_mem = 0;
 
     loop {
-        if let Some(_status) = child.try_wait().expect("Check failed") {
-            break;
-        }
+        s.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::everything(),
+        );
 
-        let current_mem = sysinfo::Process::memory(process);
-        if current_mem > max_mem {
-            max_mem = current_mem;
+        if let Some(process) = s.process(pid) {
+            let current_mem = sysinfo::Process::memory(process);
+            let _current_v_mem = sysinfo::Process::virtual_memory(process);
+            if current_mem > max_mem {
+                max_mem = current_mem;
+            }
+        } else {
+            break;
         }
 
         std::thread::sleep(sampling_interval);

@@ -6,6 +6,7 @@ mod parser;
 use crate::{bench_config::BenchConfig, executor::execute_benchmark, parser::Args};
 
 use clap::Parser;
+use rayon::ThreadPoolBuilder;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -27,7 +28,12 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let _ = execute_benchmark(config);
+    let thread_pool = ThreadPoolBuilder::new()
+        .num_threads(config.threads)
+        .build()
+        .unwrap();
+
+    let _ = execute_benchmark(config, thread_pool);
 
     ExitCode::SUCCESS
 }
