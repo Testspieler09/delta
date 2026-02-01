@@ -2,6 +2,7 @@ mod bench_config;
 mod executor;
 mod helper;
 mod monitor_memory;
+mod monitor_time;
 mod parser;
 mod results;
 
