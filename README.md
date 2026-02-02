@@ -8,7 +8,7 @@ Made for benchmarking similar programs based on time it takes to execute and the
 
 ## Usage
 
-To use $\Delta$ please create a [benchmark config](#config) and execute $\Delta$ like this:
+To use $\Delta$ please create a [benchmark config](#benchmark-config-example) and execute $\Delta$ like this:
 ```sh
 delta -f <your_config_file> -o <your_output_directory>
 ```
@@ -17,8 +17,6 @@ Its that easy 🚀.
 
 
 ## Benchmark config example
-
-<a name="config" />
 
 ```toml
 threads = 2                        # override how many threads the program uses (defaults to systems suggestion) (only for memory measurment)
