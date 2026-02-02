@@ -1,8 +1,9 @@
 use crate::{
-    bench_config::MeasuringMode,
+    bench_config::{MeasuringMode, WarmupMode},
     executor::RunConfig,
     info,
     results::{PeakMemoryResult, RunResult, TimelineMemoryResult},
+    warmup::{WarmupConfig, run_warmup},
 };
 
 use anyhow::Result;
@@ -54,12 +55,21 @@ fn monitor_memory(child: &mut Child, sampling_interval: Duration) -> Result<Time
 }
 
 fn measure_memory_usage_over_time(
-    runs: &[&RunConfig],
+    runs: &[RunConfig],
     thread_pool: &ThreadPool,
+    warmup_config: &WarmupConfig,
 ) -> Result<Vec<RunResult>> {
+    if warmup_config.iter_count > 0 && warmup_config.mode == WarmupMode::Global {
+        run_warmup(runs, &warmup_config);
+    }
+
     let results = thread_pool.install(|| {
         runs.par_iter()
             .map(|run| {
+                if warmup_config.mode == WarmupMode::Interval {
+                    run_warmup(std::slice::from_ref(run), &warmup_config);
+                }
+
                 let mut child = Command::new(&run.cmd)
                     .args(&run.args)
                     .stdout(Stdio::null())
@@ -82,9 +92,45 @@ fn measure_memory_usage_over_time(
     Ok(results)
 }
 
-fn run_and_measure_peak_memory(runs: &[&RunConfig]) -> Vec<RunResult> {
+fn monitor_virtual_peak_memory(pid_raw: u32, sampling_interval: Duration) -> u64 {
+    let mut s = System::new_all();
+    let pid = Pid::from(pid_raw as usize);
+
+    let mut max_v_mem = 0;
+
+    loop {
+        s.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::everything(),
+        );
+
+        if let Some(process) = s.process(pid) {
+            let current_v_mem = sysinfo::Process::virtual_memory(process);
+            if current_v_mem > max_v_mem {
+                max_v_mem = current_v_mem;
+            }
+        } else {
+            break;
+        }
+
+        std::thread::sleep(sampling_interval);
+    }
+
+    max_v_mem
+}
+
+fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig) -> Vec<RunResult> {
+    if warmup_config.iter_count > 0 && warmup_config.mode == WarmupMode::Global {
+        run_warmup(runs, warmup_config);
+    }
+
     runs.iter()
         .map(|run| {
+            if warmup_config.mode == WarmupMode::Interval {
+                run_warmup(std::slice::from_ref(run), warmup_config);
+            }
+
             let before = getrusage(UsageWho::RUSAGE_CHILDREN).unwrap();
 
             let child = Command::new(&run.cmd)
@@ -95,6 +141,8 @@ fn run_and_measure_peak_memory(runs: &[&RunConfig]) -> Vec<RunResult> {
                 .unwrap();
 
             let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+            let vsz = monitor_virtual_peak_memory(child.id(), run.memory_interval);
+
             let _ = waitpid(pid, None).unwrap();
 
             let after = getrusage(UsageWho::RUSAGE_CHILDREN).unwrap();
@@ -103,7 +151,7 @@ fn run_and_measure_peak_memory(runs: &[&RunConfig]) -> Vec<RunResult> {
 
             RunResult::PeakMemory(PeakMemoryResult {
                 physical: psz,
-                virtual_: 0, // TODO: try via polling inside a different fn?
+                virtual_: vsz,
             })
         })
         .collect()
@@ -112,14 +160,21 @@ fn run_and_measure_peak_memory(runs: &[&RunConfig]) -> Vec<RunResult> {
 pub(super) fn measure_memory_for_runs(
     runs: &[RunConfig],
     thread_pool: &ThreadPool,
+    warmup_config: &WarmupConfig,
 ) -> Result<Vec<RunResult>> {
     info!("Starting to measure memory usage");
-    let (timeline_runs, max_runs): (Vec<_>, Vec<_>) = runs
+    let (timeline_idxs, max_idxs): (Vec<_>, Vec<_>) = runs
         .iter()
-        .partition(|run| run.memory_measuring_mode == MeasuringMode::Timeline);
+        .enumerate()
+        .partition(|(_, run)| run.memory_measuring_mode == MeasuringMode::Timeline);
 
-    let timeline_results = measure_memory_usage_over_time(&timeline_runs, thread_pool);
-    let max_results = run_and_measure_peak_memory(&max_runs);
+    let timeline_runs: Vec<RunConfig> = timeline_idxs.into_iter().map(|(_, r)| r.clone()).collect();
+
+    let max_runs: Vec<RunConfig> = max_idxs.into_iter().map(|(_, r)| r.clone()).collect();
+
+    let timeline_results =
+        measure_memory_usage_over_time(&timeline_runs, thread_pool, warmup_config);
+    let max_results = run_and_measure_peak_memory(&max_runs, warmup_config);
 
     let mut combined_results = timeline_results?;
     combined_results.extend(max_results);

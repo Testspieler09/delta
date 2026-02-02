@@ -2,10 +2,6 @@
 
 Made for benchmarking similar programs based on time it takes to execute and the memory used during the programs execution.
 
-> [!CAUTION]
->
-> $\Delta$ is currently work in progress and may change dramatically
-
 ## Usage
 
 To use $\Delta$ please create a [benchmark config](#benchmark-config-example) and execute $\Delta$ like this:
@@ -14,7 +10,6 @@ delta -f <your_config_file> -o <your_output_directory>
 ```
 
 Its that easy 🚀.
-
 
 ## Benchmark config example
 
@@ -50,25 +45,18 @@ warmup_count = 3                   # Override the gloabel warmup count/intervals
 warmup_mode = "interval"           # Override the gloabel warmup mode
 ```
 
-
 ### Memory measuring modes
 
 > [!NOTE]
 >
 > $\Delta$ measures both physical and virtual memory.
 
-| Mode                   | Description                                                                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"timeline"` (default) | Track the memory usage of the process over time via polling the process info from the system                                                                  |
-| `"maximum"`            | Get the [rss](https://en.wikipedia.org/wiki/Resident_set_size) from the unix system for the physical memory. Currently it does not measure the virtual memory |
-
+| Mode                   | Description                                                                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"timeline"` (default) | Track the memory usage of the process over time via polling the process info from the system                                                                                                                             |
+| `"maximum"`            | Get the [rss](https://en.wikipedia.org/wiki/Resident_set_size) from the unix system for the physical memory. Virtual memory is also determined by polling the info from the system and tracking the virtual memory peak. |
 
 ### Warmup modes
-
-> [!NOTE]
->
-> Currently the warmup mode is not implemented yet.
-> One can however add the config options as it will be supported in the next few weeks.
 
 | Mode                 | Description                                                                                                                               |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |

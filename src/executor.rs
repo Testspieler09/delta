@@ -1,5 +1,5 @@
 use crate::{
-    bench_config::{BenchConfig, MeasuringMode, WarmupMode},
+    bench_config::{BenchConfig, MeasuringMode},
     info,
     monitor_memory::measure_memory_for_runs,
     monitor_time::measure_execution_time,
@@ -17,8 +17,6 @@ pub struct RunConfig {
     pub timeout: Duration,
     pub memory_interval: Duration,
     pub memory_measuring_mode: MeasuringMode,
-    pub warmup_count: usize,
-    pub warmup_mode: WarmupMode,
 }
 
 fn expand_runs_for_time_measurment(bench_config: &BenchConfig) -> Vec<RunConfig> {
@@ -39,8 +37,6 @@ fn expand_runs_for_time_measurment(bench_config: &BenchConfig) -> Vec<RunConfig>
                 memory_measuring_mode: cmd
                     .memory_measuring_mode
                     .unwrap_or(bench_config.memory_measuring_mode),
-                warmup_count: cmd.warmup_count.unwrap_or(bench_config.warmup_count),
-                warmup_mode: cmd.warmup_mode.unwrap_or(bench_config.warmup_mode),
             })
         })
         .collect()
@@ -72,8 +68,6 @@ fn expand_runs_for_memory_measurment(bench_config: &BenchConfig) -> Vec<RunConfi
                 memory_measuring_mode: cmd
                     .memory_measuring_mode
                     .unwrap_or(bench_config.memory_measuring_mode),
-                warmup_count: cmd.warmup_count.unwrap_or(bench_config.warmup_count),
-                warmup_mode: cmd.warmup_mode.unwrap_or(bench_config.warmup_mode),
             })
         })
         .collect()
@@ -96,7 +90,8 @@ pub(super) fn execute_benchmark(
         })
         .collect::<Vec<CommandResults>>();
 
-    let times = measure_execution_time(&timing_runs).map_err(|_| ExitCode::FAILURE)?;
+    let times = measure_execution_time(&timing_runs, (&bench_config).into())
+        .map_err(|_| ExitCode::FAILURE)?;
 
     for (i, time_result) in times.iter().enumerate() {
         let exec_time_result = ExecutionTimeResult {
@@ -107,8 +102,8 @@ pub(super) fn execute_benchmark(
     }
 
     let mem_runs = expand_runs_for_memory_measurment(&bench_config);
-    let memory_stats =
-        measure_memory_for_runs(&mem_runs, &thread_pool).map_err(|_| ExitCode::FAILURE)?;
+    let memory_stats = measure_memory_for_runs(&mem_runs, &thread_pool, &(&bench_config).into())
+        .map_err(|_| ExitCode::FAILURE)?;
     for (i, mem_stat) in memory_stats.into_iter().enumerate() {
         let cmd_idx = i % cmd_count;
         command_results[cmd_idx].runs.push(mem_stat);

@@ -37,7 +37,7 @@ pub(super) enum MeasuringMode {
     Maximum,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum WarmupMode {
     /// Run warmup with all cmds once before the cmds
     Global,
@@ -71,7 +71,7 @@ pub struct BenchConfig {
     #[serde(default = "default_memory_measuring_mode")]
     pub memory_measuring_mode: MeasuringMode,
 
-    // Warmup Config
+    // Warmup Config (can only be set globally)
     #[serde(default = "default_warmup_count")]
     pub warmup_count: usize,
 
@@ -96,8 +96,6 @@ impl Into<Vec<RunConfig>> for BenchConfig {
                 memory_measuring_mode: c
                     .memory_measuring_mode
                     .unwrap_or(self.memory_measuring_mode),
-                warmup_count: c.warmup_count.unwrap_or(self.warmup_count),
-                warmup_mode: c.warmup_mode.unwrap_or(self.warmup_mode),
             })
             .collect()
     }
@@ -129,13 +127,6 @@ pub struct CommandConfig {
 
     #[serde(default)]
     pub memory_measuring_mode: Option<MeasuringMode>,
-
-    // Warmup Config
-    #[serde(default)]
-    pub warmup_count: Option<usize>,
-
-    #[serde(default)]
-    pub warmup_mode: Option<WarmupMode>,
 }
 
 impl TryFrom<&PathBuf> for BenchConfig {
