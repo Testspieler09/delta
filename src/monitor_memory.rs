@@ -1,7 +1,11 @@
 use crate::{
+    bench_config::MeasuringMode,
     executor::RunConfig,
+    info,
     results::{PeakMemoryResult, RunResult, TimelineMemoryResult},
 };
+
+use anyhow::Result;
 use nix::sys::{
     resource::{UsageWho, getrusage},
     wait::waitpid,
@@ -10,23 +14,16 @@ use rayon::{
     ThreadPool,
     iter::{IntoParallelRefIterator, ParallelIterator},
 };
-use std::process::{Command, Stdio};
-
-use anyhow::Result;
 use std::{
-    process::Child,
+    process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-pub(super) fn monitor_memory(
-    child: &mut Child,
-    sampling_interval: Duration,
-) -> Result<TimelineMemoryResult> {
-    let s = System::new_all();
-    let process = s
-        .process(Pid::from(child.id() as usize))
-        .expect("Process not running nomore");
+fn monitor_memory(child: &mut Child, sampling_interval: Duration) -> Result<TimelineMemoryResult> {
+    let mut s = System::new_all();
+    let pid = Pid::from(child.id() as usize);
+    let process_refresh_kind = ProcessRefreshKind::nothing().with_memory();
 
     let start = Instant::now();
     let mut mem_timeline: Vec<(Duration, PeakMemoryResult)> = Vec::with_capacity(2000);
@@ -36,12 +33,17 @@ pub(super) fn monitor_memory(
             break;
         }
 
-        let mem_result = PeakMemoryResult {
-            physical: sysinfo::Process::memory(process),
-            virtual_: sysinfo::Process::virtual_memory(process),
-        };
+        s.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, process_refresh_kind);
 
-        mem_timeline.push((start.elapsed(), mem_result));
+        if let Some(process) = s.process(pid) {
+            let mem_result = PeakMemoryResult {
+                physical: process.memory(),
+                virtual_: process.virtual_memory(),
+            };
+            mem_timeline.push((start.elapsed(), mem_result));
+        } else {
+            break;
+        }
 
         std::thread::sleep(sampling_interval);
     }
@@ -51,8 +53,8 @@ pub(super) fn monitor_memory(
     })
 }
 
-pub(super) fn measure_memory_usage_over_time(
-    runs: &[RunConfig],
+fn measure_memory_usage_over_time(
+    runs: &[&RunConfig],
     thread_pool: &ThreadPool,
 ) -> Result<Vec<RunResult>> {
     let results = thread_pool.install(|| {
@@ -80,7 +82,7 @@ pub(super) fn measure_memory_usage_over_time(
     Ok(results)
 }
 
-pub fn run_and_measure_peak_memory(runs: &[RunConfig]) -> Vec<RunResult> {
+fn run_and_measure_peak_memory(runs: &[&RunConfig]) -> Vec<RunResult> {
     runs.iter()
         .map(|run| {
             let before = getrusage(UsageWho::RUSAGE_CHILDREN).unwrap();
@@ -105,4 +107,22 @@ pub fn run_and_measure_peak_memory(runs: &[RunConfig]) -> Vec<RunResult> {
             })
         })
         .collect()
+}
+
+pub(super) fn measure_memory_for_runs(
+    runs: &[RunConfig],
+    thread_pool: &ThreadPool,
+) -> Result<Vec<RunResult>> {
+    info!("Starting to measure memory usage");
+    let (timeline_runs, max_runs): (Vec<_>, Vec<_>) = runs
+        .iter()
+        .partition(|run| run.memory_measuring_mode == MeasuringMode::Timeline);
+
+    let timeline_results = measure_memory_usage_over_time(&timeline_runs, thread_pool);
+    let max_results = run_and_measure_peak_memory(&max_runs);
+
+    let mut combined_results = timeline_results?;
+    combined_results.extend(max_results);
+
+    Ok(combined_results)
 }

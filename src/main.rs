@@ -5,6 +5,7 @@ mod monitor_memory;
 mod monitor_time;
 mod parser;
 mod results;
+mod warmup;
 
 use crate::{bench_config::BenchConfig, executor::execute_benchmark, parser::Args};
 
@@ -36,13 +37,8 @@ fn main() -> ExitCode {
         .build()
         .unwrap();
 
-    let bench_results = execute_benchmark(
-        config,
-        thread_pool,
-        args.measure_mem_once,
-        args.memory_measuring_mode,
-    )
-    .expect("Failed to create benchmark results");
+    let bench_results =
+        execute_benchmark(config, thread_pool).expect("Failed to create benchmark results");
 
     if let Err(e) = bench_results.export_to_csv_files(args.output_folder) {
         error_print!("Could not export the benchmark results: {}", e);
