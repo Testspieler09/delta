@@ -40,9 +40,6 @@ max_execution_time = "300s"        # Override the global max_time for this cmd
 memory_sampling_interval = "10ms"  # Override the gloabel memory_sampling_interval
 measure_mem_once = true            # Override the global flag
 memory_measuring_mode = "maximum"  # Override the global measuring mode
-
-warmup_count = 3                   # Override the gloabel warmup count/intervals
-warmup_mode = "interval"           # Override the gloabel warmup mode
 ```
 
 ### Memory measuring modes
