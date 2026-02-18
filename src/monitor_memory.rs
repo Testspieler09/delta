@@ -66,6 +66,7 @@ fn measure_memory_usage_over_time(
     let results = thread_pool.install(|| {
         runs.par_iter()
             .map(|run| {
+                info!("Running timeline mem usage {} {:?}", run.cmd, run.args);
                 if warmup_config.mode == WarmupMode::Interval {
                     run_warmup(std::slice::from_ref(run), &warmup_config);
                 }
@@ -127,6 +128,7 @@ fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig)
 
     runs.iter()
         .map(|run| {
+            info!("Running max mem usage {} {:?}", run.cmd, run.args);
             if warmup_config.mode == WarmupMode::Interval {
                 run_warmup(std::slice::from_ref(run), warmup_config);
             }

@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
+use humantime_serde::re::humantime;
 use serde::Deserialize;
-use std::{fs, path::PathBuf, time::Duration};
+use std::{fmt, fs, path::PathBuf, time::Duration};
 
 use crate::executor::RunConfig;
 
@@ -38,6 +39,16 @@ pub(super) enum MeasuringMode {
     Maximum,
 }
 
+impl fmt::Display for MeasuringMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            MeasuringMode::Timeline => "timeline",
+            MeasuringMode::Maximum => "maximum",
+        };
+        write!(f, "{s}")
+    }
+}
+
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WarmupMode {
@@ -46,6 +57,16 @@ pub enum WarmupMode {
 
     /// Run warmup for each cmd right before it (best case measurments)
     Interval,
+}
+
+impl fmt::Display for WarmupMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            WarmupMode::Global => "global",
+            WarmupMode::Interval => "interval",
+        };
+        write!(f, "{s}")
+    }
 }
 
 #[derive(Deserialize)]
@@ -82,6 +103,44 @@ pub struct BenchConfig {
 
     #[serde(rename = "command")]
     pub commands: Vec<CommandConfig>,
+}
+
+impl fmt::Display for BenchConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Bench Configuration")?;
+        writeln!(f, "====================")?;
+        writeln!(f, "Global threads (mem measurement): {}", self.threads)?;
+        writeln!(f, "Global iterations:                {}", self.iterations)?;
+        writeln!(
+            f,
+            "Global max_execution_time:        {}",
+            humantime::format_duration(self.max_execution_time)
+        )?;
+        writeln!(
+            f,
+            "Global memory_sampling_interval:  {}",
+            humantime::format_duration(self.memory_sampling_interval)
+        )?;
+        writeln!(
+            f,
+            "Measure memory once:              {}",
+            self.measure_mem_once
+        )?;
+        writeln!(
+            f,
+            "Memory measuring mode:            {}",
+            self.memory_measuring_mode
+        )?;
+        writeln!(f, "Warmup count:                     {}", self.warmup_count)?;
+        writeln!(f, "Warmup mode:                      {}", self.warmup_mode)?;
+        writeln!(
+            f,
+            "Number of commands:               {}",
+            self.commands.len()
+        )?;
+
+        Ok(())
+    }
 }
 
 impl Into<Vec<RunConfig>> for BenchConfig {

@@ -36,6 +36,8 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    println!("{}", config);
+
     if config.commands.is_empty() {
         error_print!("No commands provided.");
         return ExitCode::FAILURE;

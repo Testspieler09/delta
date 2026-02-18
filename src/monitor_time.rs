@@ -24,6 +24,7 @@ pub(super) fn measure_execution_time(
     let results = runs
         .iter()
         .map(|run| {
+            info!("Running time measurement {} {:?}", run.cmd, run.args);
             if warmup_config.mode == WarmupMode::Interval {
                 run_warmup(std::slice::from_ref(run), &warmup_config);
             }
