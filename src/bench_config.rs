@@ -147,3 +147,111 @@ impl TryFrom<&PathBuf> for BenchConfig {
         Ok(config)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::Duration;
+    use tempfile::Builder;
+
+    #[test]
+    fn test_default_values() {
+        assert_eq!(default_iterations(), 200);
+        assert_eq!(
+            default_threads(),
+            std::thread::available_parallelism().unwrap().get()
+        );
+        assert_eq!(default_max_time(), Duration::from_secs(10));
+        assert_eq!(default_max_sampling_interval(), Duration::from_micros(100));
+        assert_eq!(default_measure_mem_once(), false);
+        assert!(default_memory_measuring_mode() == MeasuringMode::Timeline);
+        assert_eq!(default_warmup_count(), 10);
+        assert!(default_warmup_mode() == WarmupMode::Global);
+    }
+
+    #[test]
+    fn test_benchconfig_deserialize_with_defaults() {
+        let toml_content = r#"
+            command = [{ cmd = "echo", args = ["hello"] }]
+        "#;
+
+        let config: BenchConfig = toml::from_str(toml_content).expect("Failed to parse TOML");
+
+        assert_eq!(config.threads, default_threads());
+        assert_eq!(config.iterations, default_iterations());
+        assert_eq!(config.max_execution_time, default_max_time());
+        assert_eq!(
+            config.memory_sampling_interval,
+            default_max_sampling_interval()
+        );
+        assert_eq!(config.measure_mem_once, false);
+        assert!(config.memory_measuring_mode == MeasuringMode::Timeline);
+        assert_eq!(config.warmup_count, default_warmup_count());
+        assert!(config.warmup_mode == WarmupMode::Global);
+
+        assert_eq!(config.commands.len(), 1);
+        assert_eq!(config.commands[0].cmd, "echo");
+        assert_eq!(config.commands[0].args, vec!["hello"]);
+    }
+
+    #[test]
+    fn test_try_from_pathbuf_valid() {
+        let mut file = Builder::new().suffix(".toml").tempfile().unwrap();
+        write!(file, "[[command]]\ncmd = \"ls\"\n").unwrap();
+
+        let path = file.path().to_path_buf();
+        let config = BenchConfig::try_from(&path).expect("Failed to read config");
+        assert_eq!(config.commands[0].cmd, "ls");
+    }
+
+    #[test]
+    fn test_try_from_pathbuf_invalid_extension() {
+        let path = PathBuf::from("config.json");
+        let result = BenchConfig::try_from(&path);
+
+        if let Ok(_cfg) = result {
+            panic!("Expected an error, got Ok value");
+        }
+
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("not a toml file"));
+    }
+
+    #[test]
+    fn test_into_runconfig_conversion() {
+        let mode = MeasuringMode::Maximum;
+        let execution_time = Duration::from_secs(5);
+        let sampling_interval = Duration::from_micros(50);
+        let config = BenchConfig {
+            threads: 4,
+            iterations: 100,
+            max_execution_time: execution_time.clone(),
+            memory_sampling_interval: sampling_interval.clone(),
+            measure_mem_once: false,
+            memory_measuring_mode: mode,
+            warmup_count: 3,
+            warmup_mode: WarmupMode::Global,
+            commands: vec![CommandConfig {
+                cmd: "echo".into(),
+                args: vec!["hello".into()],
+                iterations: None,
+                max_execution_time: None,
+                memory_sampling_interval: None,
+                measure_mem_once: None,
+                memory_measuring_mode: None,
+            }],
+        };
+
+        let run_configs: Vec<RunConfig> = config.into();
+
+        assert_eq!(run_configs.len(), 1);
+        let rc = &run_configs[0];
+        assert_eq!(rc.cmd, "echo");
+        assert_eq!(rc.args, vec!["hello"]);
+        assert_eq!(rc.timeout, execution_time);
+        assert_eq!(rc.memory_interval, sampling_interval);
+        assert!(rc.memory_measuring_mode == mode);
+    }
+}
