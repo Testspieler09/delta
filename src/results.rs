@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use csv::Writer;
 use std::{fs, path::PathBuf, time::Duration};
 
@@ -41,13 +41,6 @@ pub struct BenchResults {
 
 impl BenchResults {
     pub fn export_to_csv_files(&self, output_folder: PathBuf) -> Result<()> {
-        if !output_folder.is_dir() {
-            return Err(anyhow!(
-                "{:?} does not exists or is not a directory.",
-                output_folder
-            ));
-        }
-
         let time_dir = output_folder.join("time");
         let mem_dir = output_folder.join("memory");
 

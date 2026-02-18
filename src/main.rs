@@ -16,6 +16,14 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args = Args::parse();
 
+    if !args.output_folder.is_dir() {
+        error_print!(
+            "{:?} does not exists or is not a directory.",
+            args.output_folder
+        );
+        return ExitCode::FAILURE;
+    }
+
     let bench_config = BenchConfig::try_from(&args.config_file).map_err(|e| {
         error_print!(
             "Could not parse your config file: {}",
