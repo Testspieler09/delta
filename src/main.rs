@@ -16,11 +16,12 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    let bench_config = BenchConfig::try_from(&args.config_file).map_err(|_| {
+    let bench_config = BenchConfig::try_from(&args.config_file).map_err(|e| {
         error_print!(
             "Could not parse your config file: {}",
             args.config_file.display()
         );
+        error_print!("{}", e);
     });
 
     let Ok(config) = bench_config else {

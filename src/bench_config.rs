@@ -32,12 +32,14 @@ fn default_warmup_mode() -> WarmupMode {
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum MeasuringMode {
     Timeline,
     Maximum,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum WarmupMode {
     /// Run warmup with all cmds once before the cmds
     Global,

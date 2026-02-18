@@ -14,3 +14,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 sysinfo = "0.38.0"
 toml = "0.9.11"
 wait-timeout = "0.2.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
