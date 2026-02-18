@@ -1,6 +1,7 @@
 use crate::{
     bench_config::{BenchConfig, WarmupMode},
     executor::RunConfig,
+    info,
 };
 use std::process::{Command, Stdio};
 use wait_timeout::ChildExt;
@@ -39,6 +40,7 @@ pub(super) fn run_warmup(runs: &[RunConfig], config: &WarmupConfig) {
             match child.wait_timeout(run.timeout) {
                 Ok(Some(_)) => {}
                 Ok(None) => {
+                    info!("Killed process as it exceeded max_execution_time");
                     let _ = child.kill();
                     let _ = child.wait();
                 }

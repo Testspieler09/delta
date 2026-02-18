@@ -1,4 +1,5 @@
 mod bench_config;
+mod csv_export;
 mod executor;
 mod helper;
 mod monitor_memory;
@@ -7,7 +8,11 @@ mod parser;
 mod results;
 mod warmup;
 
-use crate::{bench_config::BenchConfig, executor::execute_benchmark, parser::Args};
+use crate::{
+    bench_config::BenchConfig,
+    executor::{execute_benchmark, execute_benchmark_streaming},
+    parser::Args,
+};
 
 use clap::Parser;
 use rayon::ThreadPoolBuilder;
@@ -48,12 +53,21 @@ fn main() -> ExitCode {
         .build()
         .unwrap();
 
-    let bench_results =
-        execute_benchmark(config, thread_pool).expect("Failed to create benchmark results");
+    let incremental_enabled = !args.no_incremental;
 
-    if let Err(e) = bench_results.export_to_csv_files(args.output_folder) {
-        error_print!("Could not export the benchmark results: {}", e);
-        return ExitCode::FAILURE;
+    if incremental_enabled {
+        if let Err(e) = execute_benchmark_streaming(config, thread_pool, args.output_folder) {
+            error_print!("Benchmark failed: {:?}", e);
+            return ExitCode::FAILURE;
+        }
+    } else {
+        let bench_results =
+            execute_benchmark(config, thread_pool).expect("Failed to create benchmark results");
+
+        if let Err(e) = bench_results.export_to_csv_files(args.output_folder) {
+            error_print!("Could not export the benchmark results: {}", e);
+            return ExitCode::FAILURE;
+        }
     }
 
     ExitCode::SUCCESS

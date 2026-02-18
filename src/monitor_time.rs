@@ -41,6 +41,7 @@ pub(super) fn measure_execution_time(
             match child.wait_timeout(run.timeout).ok()? {
                 Some(_) => Some(start.elapsed()),
                 None => {
+                    info!("Killed process as it exceeded max_execution_time");
                     let _ = child.kill();
                     let _ = child.wait();
                     None
