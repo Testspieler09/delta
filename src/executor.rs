@@ -1,18 +1,18 @@
 use crate::{
     bench_config::{BenchConfig, MeasuringMode},
-    csv_export::CommandCsvWriters,
     info,
     monitor_memory::measure_memory_for_runs,
     monitor_time::measure_execution_time,
     results::{BenchResults, CommandResults, ExecutionTimeResult, RunResult},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rayon::ThreadPool;
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 #[derive(Clone)]
 pub struct RunConfig {
+    pub cmd_index: usize,
     pub cmd: String,
     pub args: Vec<String>,
     pub timeout: Duration,
@@ -24,9 +24,11 @@ fn expand_runs_for_time_measurment(bench_config: &BenchConfig) -> Vec<RunConfig>
     bench_config
         .commands
         .iter()
-        .flat_map(|cmd| {
+        .enumerate()
+        .flat_map(|(cmd_index, cmd)| {
             let iters = cmd.iterations.unwrap_or(bench_config.iterations);
             (0..iters).map(move |_| RunConfig {
+                cmd_index,
                 cmd: cmd.cmd.clone(),
                 args: cmd.args.clone(),
                 timeout: cmd
@@ -47,7 +49,8 @@ fn expand_runs_for_memory_measurment(bench_config: &BenchConfig) -> Vec<RunConfi
     bench_config
         .commands
         .iter()
-        .flat_map(|cmd| {
+        .enumerate()
+        .flat_map(|(cmd_index, cmd)| {
             let iters = if cmd
                 .measure_mem_once
                 .unwrap_or(bench_config.measure_mem_once)
@@ -58,6 +61,7 @@ fn expand_runs_for_memory_measurment(bench_config: &BenchConfig) -> Vec<RunConfi
             };
 
             (0..iters).map(move |_| RunConfig {
+                cmd_index,
                 cmd: cmd.cmd.clone(),
                 args: cmd.args.clone(),
                 timeout: cmd
@@ -81,52 +85,70 @@ pub(super) fn execute_benchmark_streaming(
 ) -> Result<(), ExitCode> {
     let timing_runs = expand_runs_for_time_measurment(&bench_config);
     let mem_runs = expand_runs_for_memory_measurment(&bench_config);
-    let cmd_count = bench_config.commands.len();
 
-    // Create directories
     let time_dir = output_folder.join("time");
     let mem_dir = output_folder.join("memory");
+
     std::fs::create_dir_all(&time_dir).map_err(|_| ExitCode::FAILURE)?;
     std::fs::create_dir_all(&mem_dir).map_err(|_| ExitCode::FAILURE)?;
 
-    // Initialize writers for each command
-    let mut writers: Vec<CommandCsvWriters> = bench_config
+    let mut command_results: Vec<CommandResults> = bench_config
         .commands
         .iter()
-        .enumerate()
-        .map(|(i, cmd)| {
-            CommandCsvWriters::new(i, &cmd.cmd, &cmd.args, &time_dir, &mem_dir)
-                .map_err(|_| ExitCode::FAILURE)
+        .map(|cmd| CommandResults {
+            cmd: cmd.cmd.clone(),
+            args: cmd.args.clone(),
+            runs: Vec::with_capacity(cmd.iterations.unwrap_or(bench_config.iterations)),
         })
-        .collect::<Result<_, _>>()?;
+        .collect();
 
-    // Measure execution time
-    let times = measure_execution_time(&timing_runs, (&bench_config).into())
-        .map_err(|_| ExitCode::FAILURE)?;
-    for (i, time_result) in times.iter().enumerate() {
-        let run = RunResult::Time(ExecutionTimeResult {
-            duration: time_result.unwrap_or_default(),
-        });
-        let cmd_idx = i % cmd_count;
-        writers[cmd_idx]
-            .write_run(i, &run)
-            .map_err(|_| ExitCode::FAILURE)?;
-    }
+    let _ = measure_execution_time(
+        &timing_runs,
+        (&bench_config).into(),
+        Some(|run_idx, run_cfg: &RunConfig, elapsed: Option<Duration>| {
+            let cmd_idx = run_cfg.cmd_index;
+            let run_result = RunResult::Time(ExecutionTimeResult {
+                duration: elapsed.unwrap_or_default(),
+            });
 
-    // Measure memory
-    let memory_stats = measure_memory_for_runs(&mem_runs, &thread_pool, &(&bench_config).into())
-        .map_err(|_| ExitCode::FAILURE)?;
-    for (i, mem_stat) in memory_stats.into_iter().enumerate() {
-        let cmd_idx = i % cmd_count;
-        writers[cmd_idx]
-            .write_run(i, &mem_stat)
-            .map_err(|_| ExitCode::FAILURE)?;
-    }
+            // Save to command results
+            command_results[cmd_idx].runs.push(run_result.clone());
 
-    // Flush all writers
-    for w in writers.iter_mut() {
-        w.flush_all().map_err(|_| ExitCode::FAILURE)?;
-    }
+            // Export immediately to CSV
+            command_results[cmd_idx]
+                .export_runs_incremental(&time_dir, &mem_dir)
+                .with_context(|| {
+                    format!("Failed to export run {} for command {}", run_idx, cmd_idx)
+                })?;
+
+            Ok(())
+        }),
+    )
+    .map_err(|_| ExitCode::FAILURE)?;
+
+    let _ = measure_memory_for_runs(
+        &mem_runs,
+        &thread_pool,
+        &(&bench_config).into(),
+        Some(|run_idx, run_cfg: &RunConfig, run_result: &RunResult| {
+            let cmd_idx = run_cfg.cmd_index;
+
+            command_results[cmd_idx].runs.push(run_result.clone());
+
+            // Export immediately to CSV
+            command_results[cmd_idx]
+                .export_runs_incremental(&time_dir, &mem_dir)
+                .with_context(|| {
+                    format!(
+                        "Failed to export memory run {} for command {}",
+                        run_idx, cmd_idx
+                    )
+                })?;
+
+            Ok(())
+        }),
+    )
+    .map_err(|_| ExitCode::FAILURE)?;
 
     info!("Benchmarking completed. Results saved incrementally.");
 
@@ -146,12 +168,16 @@ pub(super) fn execute_benchmark(
         .map(|cmd| CommandResults {
             cmd: cmd.cmd.clone(),
             args: cmd.args.clone(),
-            runs: Vec::with_capacity(2),
+            runs: Vec::with_capacity(cmd.iterations.unwrap_or(bench_config.iterations)),
         })
         .collect::<Vec<CommandResults>>();
 
-    let times = measure_execution_time(&timing_runs, (&bench_config).into())
-        .map_err(|_| ExitCode::FAILURE)?;
+    let times = measure_execution_time::<fn(usize, &RunConfig, Option<Duration>) -> Result<()>>(
+        &timing_runs,
+        (&bench_config).into(),
+        None,
+    )
+    .map_err(|_| ExitCode::FAILURE)?;
 
     for (i, time_result) in times.iter().enumerate() {
         let exec_time_result = ExecutionTimeResult {
@@ -162,8 +188,13 @@ pub(super) fn execute_benchmark(
     }
 
     let mem_runs = expand_runs_for_memory_measurment(&bench_config);
-    let memory_stats = measure_memory_for_runs(&mem_runs, &thread_pool, &(&bench_config).into())
-        .map_err(|_| ExitCode::FAILURE)?;
+    let memory_stats = measure_memory_for_runs::<fn(usize, &RunConfig, &RunResult) -> Result<()>>(
+        &mem_runs,
+        &thread_pool,
+        &(&bench_config).into(),
+        None,
+    )
+    .map_err(|_| ExitCode::FAILURE)?;
     for (i, mem_stat) in memory_stats.into_iter().enumerate() {
         let cmd_idx = i % cmd_count;
         command_results[cmd_idx].runs.push(mem_stat);

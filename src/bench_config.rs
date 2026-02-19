@@ -147,7 +147,9 @@ impl Into<Vec<RunConfig>> for BenchConfig {
     fn into(self) -> Vec<RunConfig> {
         self.commands
             .iter()
-            .map(|c| RunConfig {
+            .enumerate()
+            .map(|(i, c)| RunConfig {
+                cmd_index: i,
                 cmd: c.cmd.clone(),
                 args: c.args.clone(),
                 timeout: c.max_execution_time.unwrap_or(self.max_execution_time),

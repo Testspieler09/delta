@@ -180,27 +180,69 @@ fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig)
         .collect()
 }
 
-pub(super) fn measure_memory_for_runs(
+pub(super) fn measure_memory_for_runs<F>(
     runs: &[RunConfig],
     thread_pool: &ThreadPool,
     warmup_config: &WarmupConfig,
-) -> Result<Vec<RunResult>> {
+    mut per_run_callback: Option<F>,
+) -> Result<Vec<RunResult>>
+where
+    F: FnMut(usize, &RunConfig, &RunResult) -> Result<()>,
+{
     info!("Starting to measure memory usage");
+
     let (timeline_idxs, max_idxs): (Vec<_>, Vec<_>) = runs
         .iter()
         .enumerate()
         .partition(|(_, run)| run.memory_measuring_mode == MeasuringMode::Timeline);
 
-    let timeline_runs: Vec<RunConfig> = timeline_idxs.into_iter().map(|(_, r)| r.clone()).collect();
+    let timeline_idxs_clone = timeline_idxs.clone();
+    let timeline_runs: Vec<RunConfig> = timeline_idxs_clone
+        .iter()
+        .map(|(_, r)| (*r).clone())
+        .collect();
 
-    let max_runs: Vec<RunConfig> = max_idxs.into_iter().map(|(_, r)| r.clone()).collect();
+    if !timeline_runs.is_empty() {
+        let timeline_results =
+            measure_memory_usage_over_time(&timeline_runs, thread_pool, warmup_config)?;
 
-    let timeline_results =
-        measure_memory_usage_over_time(&timeline_runs, thread_pool, warmup_config);
-    let max_results = run_and_measure_peak_memory(&max_runs, warmup_config);
+        for (i, result) in timeline_results.into_iter().enumerate() {
+            let global_idx = timeline_idxs[i].0;
+            if let Some(cb) = per_run_callback.as_mut() {
+                cb(global_idx, &runs[global_idx], &result)?;
+            }
+        }
+    }
 
-    let mut combined_results = timeline_results?;
-    combined_results.extend(max_results);
+    let max_idxs_clone = max_idxs.clone();
+    let max_runs: Vec<RunConfig> = max_idxs_clone.iter().map(|(_, r)| (*r).clone()).collect();
+
+    if !max_runs.is_empty() {
+        let max_results = run_and_measure_peak_memory(&max_runs, warmup_config);
+
+        for (i, result) in max_results.into_iter().enumerate() {
+            let global_idx = max_idxs[i].0;
+            if let Some(cb) = per_run_callback.as_mut() {
+                cb(global_idx, &runs[global_idx], &result)?;
+            }
+        }
+    }
+
+    let mut combined_results: Vec<RunResult> = Vec::with_capacity(runs.len());
+    for run in runs {
+        let result = if run.memory_measuring_mode == MeasuringMode::Timeline {
+            measure_memory_usage_over_time(&[run.clone()], thread_pool, warmup_config)?
+                .into_iter()
+                .next()
+                .unwrap()
+        } else {
+            run_and_measure_peak_memory(&[run.clone()], warmup_config)
+                .into_iter()
+                .next()
+                .unwrap()
+        };
+        combined_results.push(result);
+    }
 
     Ok(combined_results)
 }
