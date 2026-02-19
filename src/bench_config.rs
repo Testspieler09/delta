@@ -34,7 +34,7 @@ fn default_warmup_mode() -> WarmupMode {
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum MeasuringMode {
+pub enum MeasuringMode {
     Timeline,
     Maximum,
 }
@@ -143,22 +143,22 @@ impl fmt::Display for BenchConfig {
     }
 }
 
-impl Into<Vec<RunConfig>> for BenchConfig {
-    fn into(self) -> Vec<RunConfig> {
-        self.commands
+impl From<BenchConfig> for Vec<RunConfig> {
+    fn from(conf: BenchConfig) -> Self {
+        conf.commands
             .iter()
             .enumerate()
             .map(|(i, c)| RunConfig {
                 cmd_index: i,
                 cmd: c.cmd.clone(),
                 args: c.args.clone(),
-                timeout: c.max_execution_time.unwrap_or(self.max_execution_time),
+                timeout: c.max_execution_time.unwrap_or(conf.max_execution_time),
                 memory_interval: c
                     .memory_sampling_interval
-                    .unwrap_or(self.memory_sampling_interval),
+                    .unwrap_or(conf.memory_sampling_interval),
                 memory_measuring_mode: c
                     .memory_measuring_mode
-                    .unwrap_or(self.memory_measuring_mode),
+                    .unwrap_or(conf.memory_measuring_mode),
             })
             .collect()
     }
@@ -200,7 +200,7 @@ impl TryFrom<&PathBuf> for BenchConfig {
             return Err(anyhow!("The config file is not a toml file."));
         }
 
-        let content = fs::read_to_string(&path)?;
+        let content = fs::read_to_string(path)?;
 
         let config: Self =
             toml::from_str(&content).map_err(|e| anyhow!("Failed to parse TOML: {}", e))?;
@@ -226,7 +226,7 @@ mod tests {
         );
         assert_eq!(default_max_time(), Duration::from_secs(10));
         assert_eq!(default_max_sampling_interval(), Duration::from_micros(100));
-        assert_eq!(default_measure_mem_once(), false);
+        assert!(!default_measure_mem_once());
         assert!(default_memory_measuring_mode() == MeasuringMode::Timeline);
         assert_eq!(default_warmup_count(), 10);
         assert!(default_warmup_mode() == WarmupMode::Global);
@@ -247,7 +247,7 @@ mod tests {
             config.memory_sampling_interval,
             default_max_sampling_interval()
         );
-        assert_eq!(config.measure_mem_once, false);
+        assert!(!config.measure_mem_once);
         assert!(config.memory_measuring_mode == MeasuringMode::Timeline);
         assert_eq!(config.warmup_count, default_warmup_count());
         assert!(config.warmup_mode == WarmupMode::Global);
@@ -288,8 +288,8 @@ mod tests {
         let config = BenchConfig {
             threads: 4,
             iterations: 100,
-            max_execution_time: execution_time.clone(),
-            memory_sampling_interval: sampling_interval.clone(),
+            max_execution_time: execution_time,
+            memory_sampling_interval: sampling_interval,
             measure_mem_once: false,
             memory_measuring_mode: mode,
             warmup_count: 3,

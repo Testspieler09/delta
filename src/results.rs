@@ -2,7 +2,7 @@ use anyhow::Result;
 use csv::Writer;
 use std::{
     fs::{self, File},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -88,7 +88,7 @@ impl CommandResults {
     }
 
     /// Export runs incrementally (flushes after each run)
-    pub fn export_runs_incremental(&self, time_dir: &PathBuf, mem_dir: &PathBuf) -> Result<()> {
+    pub fn export_runs_incremental(&self, time_dir: &Path, mem_dir: &Path) -> Result<()> {
         let safe_base = self.safe_base_name();
 
         let mut time_writer: Option<Writer<File>> = None;

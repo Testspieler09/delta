@@ -70,7 +70,7 @@ fn measure_memory_usage_over_time(
     warmup_config: &WarmupConfig,
 ) -> Result<Vec<RunResult>> {
     if warmup_config.iter_count > 0 && warmup_config.mode == WarmupMode::Global {
-        run_warmup(runs, &warmup_config);
+        run_warmup(runs, warmup_config);
     }
 
     let results = thread_pool.install(|| {
@@ -78,7 +78,7 @@ fn measure_memory_usage_over_time(
             .map(|run| {
                 info!("Running timeline mem usage {} {:?}", run.cmd, run.args);
                 if warmup_config.mode == WarmupMode::Interval {
-                    run_warmup(std::slice::from_ref(run), &warmup_config);
+                    run_warmup(std::slice::from_ref(run), warmup_config);
                 }
 
                 let mut child = Command::new(&run.cmd)
@@ -156,7 +156,7 @@ fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig)
 
             let before = getrusage(UsageWho::RUSAGE_CHILDREN).expect("Could not get rusage");
 
-            let child = Command::new(&run.cmd)
+            let mut child = Command::new(&run.cmd)
                 .args(&run.args)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -167,6 +167,7 @@ fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig)
             let vsz = monitor_virtual_peak_memory(child.id(), run.memory_interval, run.timeout);
 
             let _ = waitpid(pid, None).unwrap();
+            let _ = child.wait();
 
             let after = getrusage(UsageWho::RUSAGE_CHILDREN).expect("Could not get rusage");
 
@@ -231,12 +232,12 @@ where
     let mut combined_results: Vec<RunResult> = Vec::with_capacity(runs.len());
     for run in runs {
         let result = if run.memory_measuring_mode == MeasuringMode::Timeline {
-            measure_memory_usage_over_time(&[run.clone()], thread_pool, warmup_config)?
+            measure_memory_usage_over_time(std::slice::from_ref(run), thread_pool, warmup_config)?
                 .into_iter()
                 .next()
                 .unwrap()
         } else {
-            run_and_measure_peak_memory(&[run.clone()], warmup_config)
+            run_and_measure_peak_memory(std::slice::from_ref(run), warmup_config)
                 .into_iter()
                 .next()
                 .unwrap()
