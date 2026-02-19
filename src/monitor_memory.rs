@@ -21,7 +21,11 @@ use std::{
 };
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-fn monitor_memory(child: &mut Child, sampling_interval: Duration) -> Result<TimelineMemoryResult> {
+fn monitor_memory(
+    child: &mut Child,
+    sampling_interval: Duration,
+    timeout: Duration,
+) -> Result<TimelineMemoryResult> {
     let mut s = System::new_all();
     let pid = Pid::from(child.id() as usize);
     let process_refresh_kind = ProcessRefreshKind::nothing().with_memory();
@@ -30,7 +34,13 @@ fn monitor_memory(child: &mut Child, sampling_interval: Duration) -> Result<Time
     let mut mem_timeline: Vec<(Duration, PeakMemoryResult)> = Vec::with_capacity(2000);
 
     loop {
-        if let Some(_status) = child.try_wait().expect("Check failed") {
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+
+        if let Some(_status) = child.try_wait()? {
             break;
         }
 
@@ -78,7 +88,8 @@ fn measure_memory_usage_over_time(
                     .spawn()
                     .expect("spawn failed");
 
-                let mem_result = match monitor_memory(&mut child, run.memory_interval) {
+                let mem_result = match monitor_memory(&mut child, run.memory_interval, run.timeout)
+                {
                     Ok(result) => Some(RunResult::TimelineMemory(result)),
                     Err(_) => None,
                 };
@@ -93,13 +104,23 @@ fn measure_memory_usage_over_time(
     Ok(results)
 }
 
-fn monitor_virtual_peak_memory(pid_raw: u32, sampling_interval: Duration) -> u64 {
+fn monitor_virtual_peak_memory(
+    pid_raw: u32,
+    sampling_interval: Duration,
+    timeout: Duration,
+) -> u64 {
     let mut s = System::new_all();
     let pid = Pid::from(pid_raw as usize);
 
     let mut max_v_mem = 0;
 
+    let start = Instant::now();
+
     loop {
+        if start.elapsed() >= timeout {
+            break;
+        }
+
         s.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[pid]),
             true,
@@ -133,7 +154,7 @@ fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig)
                 run_warmup(std::slice::from_ref(run), warmup_config);
             }
 
-            let before = getrusage(UsageWho::RUSAGE_CHILDREN).unwrap();
+            let before = getrusage(UsageWho::RUSAGE_CHILDREN).expect("Could not get rusage");
 
             let child = Command::new(&run.cmd)
                 .args(&run.args)
@@ -143,11 +164,11 @@ fn run_and_measure_peak_memory(runs: &[RunConfig], warmup_config: &WarmupConfig)
                 .unwrap();
 
             let pid = nix::unistd::Pid::from_raw(child.id() as i32);
-            let vsz = monitor_virtual_peak_memory(child.id(), run.memory_interval);
+            let vsz = monitor_virtual_peak_memory(child.id(), run.memory_interval, run.timeout);
 
             let _ = waitpid(pid, None).unwrap();
 
-            let after = getrusage(UsageWho::RUSAGE_CHILDREN).unwrap();
+            let after = getrusage(UsageWho::RUSAGE_CHILDREN).expect("Could not get rusage");
 
             let psz = after.max_rss().saturating_sub(before.max_rss()) as u64;
 
